@@ -46,7 +46,7 @@
 
 import time
 import redis
-from config import REDIS_HOST, REDIS_PORT, RATE_LIMIT, TIME_WINDOW
+from config import REDIS_HOST, REDIS_PORT,FREE_USER_LIMIT,PREMIUM_USER_LIMIT,ANON_IP_LIMIT, TIME_WINDOW
 
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
@@ -75,15 +75,15 @@ end
 
 rate_limit_lua = r.register_script(lua_script)
 
-
-def is_allowed(client_id: str):
-    key = f"rate_limit:{client_id}"
+def is_allowed(identifier: str, limit: int):
+    key = f"rate_limit:{identifier}"
     now = time.time()
 
     allowed = rate_limit_lua(
         keys=[key],
-        args=[now, TIME_WINDOW, RATE_LIMIT]
+        args=[now, TIME_WINDOW, limit]
     )
 
     return bool(allowed)
+
 
