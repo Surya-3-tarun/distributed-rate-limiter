@@ -1,39 +1,44 @@
 from fastapi import FastAPI, Request, HTTPException
-from rate_limiter import is_allowed
-from config import FREE_USER_LIMIT, PREMIUM_USER_LIMIT, ANON_IP_LIMIT
+from rate_limiter import check_limit
+from config import IP_RATE_LIMIT, USER_RATE_LIMIT_FREE, USER_RATE_LIMIT_PREMIUM
 
 app = FastAPI()
 
-def get_user_tier(request: Request):
-    # Simulate user authentication via header
-    user_id = request.headers.get("X-User-ID")
-    user_type = request.headers.get("X-User-Type")  # free / premium
 
-    if user_id and user_type:
-        return f"user:{user_id}", user_type
-    return None, None
+def get_user_tier(request: Request):
+    # Simulated user tier (later could come from DB/JWT)
+    tier = request.headers.get("X-User-Tier", "free")
+    return tier
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     client_ip = request.client.host
+    tier = get_user_tier(request)
 
-    user_identifier, user_type = get_user_tier(request)
+    # IP-level protection
+    ip_key = f"rate_limit:ip:{client_ip}"
+    if not check_limit(ip_key, IP_RATE_LIMIT):
+        raise HTTPException(status_code=429, detail="IP rate limit exceeded")
 
-    if user_identifier:
-        limit = PREMIUM_USER_LIMIT if user_type == "premium" else FREE_USER_LIMIT
-        identifier = user_identifier
+    # User-level limit
+    user_id = request.headers.get("X-User-ID", client_ip)
+    user_key = f"rate_limit:user:{user_id}"
+
+    if tier == "premium":
+        allowed = check_limit(user_key, USER_RATE_LIMIT_PREMIUM)
     else:
-        identifier = f"ip:{client_ip}"
-        limit = ANON_IP_LIMIT
+        allowed = check_limit(user_key, USER_RATE_LIMIT_FREE)
 
-    if not is_allowed(identifier, limit):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    if not allowed:
+        raise HTTPException(status_code=429, detail="User rate limit exceeded")
 
-    response = await call_next(request)
-    return response
-
+    return await call_next(request)
 
 @app.get("/")
 def home():
-    return {"message": "API is working"}
+    return {"message": "Rate limiter service running"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
